@@ -5,13 +5,15 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { defaultGameOptions } from '../src/app/newGame';
-import { deleteSave, loadGame, saveGame } from '../src/app/save';
+import { deleteSave, exportSave, importSave, loadGame, saveGame } from '../src/app/save';
 import { Sim } from '../src/sim/sim';
 
 const require = createRequire(import.meta.url);
 const store = require('../electron/saveStore.cjs') as {
   writeSlot(dir: string, meta: Record<string, unknown>, worldJson: string): Promise<void>;
   listSlots(dir: string): Promise<Record<string, unknown>[]>;
+  listHeaders(dir: string): Promise<Record<string, unknown>[]>;
+  readSlot(dir: string, id: string): Promise<Record<string, unknown>>;
   removeSlot(dir: string, id: string): Promise<void>;
   fileFor(dir: string, id: string): string;
 };
@@ -89,4 +91,49 @@ describe('the game saves through the desktop store', () => {
     // Imported once: deleting it on disk does not bring it back from the browser store.
     expect((await loadGame()).map(s => s.name)).toEqual(['Autosave']);
   }, 60000);
+
+  it('exports a lazy desktop slot and imports it as a separate loadable save', async () => {
+    const d = await dir();
+    vi.stubGlobal('indexedDB', new IDBFactory());
+    desktop(d);
+    const read = vi.fn((id: string) => store.readSlot(d, id));
+    vi.stubGlobal('ogDesktop', { saves: {
+      list: () => store.listHeaders(d), read,
+      write: (m: Record<string, unknown>, j: string) => store.writeSlot(d, m, j),
+      remove: (id: string) => store.removeSlot(d, id),
+    } });
+    const sim = new Sim({ ...defaultGameOptions(), seed: 7, citySize: 10 });
+    await saveGame('Desktop', sim.world);
+    const [header] = await loadGame();
+    expect(header).toMatchObject({ lazy: true, world: null });
+    const file = await exportSave(header);
+    expect(read).toHaveBeenCalledWith('Desktop');
+    expect(await importSave(file)).toBe('Desktop (2)');
+    const imported = await store.readSlot(d, 'Desktop (2)');
+    expect(JSON.parse(imported.worldJson as string)).toEqual(sim.world);
+    // The copy keeps the time the game was saved, not the time it was imported.
+    expect(imported.savedAt).toBe(header.savedAt);
+  });
+
+  it('does not import over a slot the list can no longer read', async () => {
+    const d = await dir();
+    vi.stubGlobal('indexedDB', new IDBFactory());
+    desktop(d);
+    vi.stubGlobal('ogDesktop', { saves: {
+      list: () => store.listHeaders(d), read: (id: string) => store.readSlot(d, id),
+      write: (m: Record<string, unknown>, j: string) => store.writeSlot(d, m, j),
+      remove: (id: string) => store.removeSlot(d, id),
+    } });
+    const sim = new Sim({ ...defaultGameOptions(), seed: 7, citySize: 10 });
+    await saveGame('Desktop', sim.world);
+    const file = await exportSave((await loadGame())[0]);
+    // Torn, with no backup: the list knows it only by its file, its name lost.
+    const slot = store.fileFor(d, 'Desktop');
+    await writeFile(slot, 'torn', 'utf8');
+    await rm(slot + '.bak', { force: true });
+    expect((await loadGame()).map(s => s.id)).toEqual([expect.stringMatching(/^file:[0-9a-f]{64}$/)]);
+    expect(await importSave(file)).toBe('Desktop (2)');
+    expect(await readFile(slot, 'utf8')).toBe('torn');
+    expect((await loadGame()).map(s => s.name).sort()).toEqual(['Desktop (2)', 'Unreadable save']);
+  });
 });
