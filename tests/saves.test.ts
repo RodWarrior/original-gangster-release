@@ -53,6 +53,25 @@ describe('save boundaries and feedback', () => {
     expect(await importSave(JSON.stringify(data))).toBe(`${'x'.repeat(56)} (2)`);
     expect((await loadGame()).map(s => s.name)).toContain('Campaign');
   });
+
+  it('keeps the saved time of an imported game, so an old backup is not the newest slot', async () => {
+    await saveGame('Old backup', useGame.getState().sim!.world, false, 1_000_000);
+    const file = await exportSave((await loadGame())[0]);
+    await saveGame('Current', useGame.getState().sim!.world);
+    expect(await importSave(file)).toBe('Old backup (2)');
+    const slots = await loadGame();
+    // Continue Previous Game opens the first slot of this list.
+    expect(slots[0].name).toBe('Current');
+    expect(slots.find(s => s.name === 'Old backup (2)')!.savedAt).toBe(1_000_000);
+    // A time that is missing, not a number or still to come is not trusted.
+    const data = JSON.parse(file), before = Date.now();
+    for (const savedAt of [undefined, 'yesterday', -5, Date.now() + 86_400_000]) {
+      const name = await importSave(JSON.stringify({ ...data, savedAt }));
+      const at = (await loadGame()).find(s => s.name === name)!.savedAt;
+      expect(at).toBeGreaterThanOrEqual(before);
+      expect(at).toBeLessThanOrEqual(Date.now());
+    }
+  });
   it('snapshots before waiting for storage and reports only after commit', async () => {
     const state = useGame.getState();
     const cash = state.sim!.playerGang.cash;

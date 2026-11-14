@@ -21,7 +21,9 @@ export function useSaveActions() {
       link.download = `${slot.name.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_') || 'save'}.ogsave.json`;
       document.body.appendChild(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      setMessage({ text: 'Save exported to your downloads.', bad: false });
+      // The page is not told whether the file was written: a browser may ask
+      // where to put it, and the desktop build opens a save dialog that can be cancelled.
+      setMessage({ text: 'Export started. The file goes to your downloads folder, or wherever you choose if you are asked.', bad: false });
     } catch (error) {
       setMessage({ text: error instanceof Error ? error.message : 'Could not export this save.', bad: true });
     } finally { setBusy(false); }
@@ -30,8 +32,10 @@ export function useSaveActions() {
   const importFile = async (file: File) => {
     setBusy(true); setMessage(null);
     try {
-      await importSave(await file.text());
+      const name = await importSave(await file.text());
       await refresh();
+      // It keeps the date it was saved, so it may not be at the top of the list.
+      setMessage({ text: `Imported as "${name}".`, bad: false });
     } catch (error) {
       setMessage({ text: error instanceof Error ? error.message : 'Could not import this save.', bad: true });
     } finally { setBusy(false); }

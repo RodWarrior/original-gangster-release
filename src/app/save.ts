@@ -38,8 +38,15 @@ export async function loadSlotWorld(slot: SaveSlot): Promise<SaveSlot> {
 export async function exportSave(slot: SaveSlot): Promise<string> {
   const loaded = await loadSlotWorld(slot);
   if (!loaded.world || loaded.error) throw Error(loaded.error ?? 'This save is unavailable.');
-  return JSON.stringify({ kind: 'original-gangster-save', version: 1, name: loaded.name,
+  return JSON.stringify({ kind: 'original-gangster-save', version: 1, name: loaded.name, savedAt: loaded.savedAt,
     campaignId: campaignId(loaded.world), world: loaded.world });
+}
+
+/** The id the desktop list gives a slot it cannot read: its name is lost, so
+ *  it is known by its file, file:<sha256 of the name> (electron/saveStore.cjs). */
+async function unreadableSlotId(name: string): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(name));
+  return 'file:' + Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('');
 }
 
 /** Validate before writing; imported saves never replace an existing slot. */
@@ -53,12 +60,20 @@ export async function importSave(text: string): Promise<string> {
   if (typeof data.campaignId === 'string' && data.campaignId) campaignIds.set(world, data.campaignId);
   const base = (typeof data.name === 'string' ? data.name.trim() : '').slice(0, 60) || 'Imported game';
   const existing = new Set((await loadGame()).map(slot => slot.id.toLowerCase()));
+  // A damaged slot still owns its file: writing its name would replace it.
+  const damaged = [...existing].some(id => id.startsWith('file:'));
+  const taken = async (name: string) => existing.has(name.toLowerCase()) || name.toLowerCase() === 'autosave' ||
+    (damaged && existing.has(await unreadableSlotId(name)));
   let name = base;
-  for (let n = 2; existing.has(name.toLowerCase()) || name.toLowerCase() === 'autosave'; n++) {
+  for (let n = 2; await taken(name); n++) {
     const suffix = ` (${n})`;
     name = base.slice(0, 60 - suffix.length) + suffix;
   }
-  await saveGame(name, world);
+  // The copy keeps the time it was saved, so an old backup does not pass for
+  // the game last played (Continue Previous Game opens the newest slot).
+  const savedAt = typeof data.savedAt === 'number' && Number.isFinite(data.savedAt) && data.savedAt > 0
+    ? Math.min(data.savedAt, Date.now()) : Date.now();
+  await saveGame(name, world, false, savedAt);
   return name;
 }
 
@@ -192,7 +207,7 @@ function oneWriteAtATime<T>(write: () => Promise<T>): Promise<T> {
   return run;
 }
 
-export async function saveGame(name: string, world: WorldState, frozen = false): Promise<void> {
+export async function saveGame(name: string, world: WorldState, frozen = false, savedAt = Date.now()): Promise<void> {
   const boss = Object.values(world.gangs).find((g) => g.isPlayer);
   const summary: SaveSummary = {
     cash: Math.round(boss?.cash ?? 0), blocks: boss ? territoryCount(world, boss.id) : 0,
@@ -201,7 +216,7 @@ export async function saveGame(name: string, world: WorldState, frozen = false):
   const metadata = {
     id: name,
     name,
-    savedAt: Date.now(),
+    savedAt,
     campaignId: campaignId(world),
     week: world.week,
     bossName: boss ? (world.people[boss.bossId]?.name ?? 'Unknown') : 'Unknown',
