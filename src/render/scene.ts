@@ -4,7 +4,7 @@ import {escapeSample,BURNING_TIMING} from '../sim/burningEscape';
 import {BurningPeople} from './burningPeople';
 import {EmergencyHoses} from './emergencyHoses';
 import { activeBlocks, blockRect, cityBlockAt, cityStreetInset, streetNameIndex } from '../sim/cityLayout';
-import { CityLandscape } from './cityLandscape';
+import { AVENUE_MEDIAN, CityLandscape, avenueAxes } from './cityLandscape';
 import { DeathMarks } from './deathMarks';
 import { CarGunfire } from './carGunfire';
 import { closedFrontMaterial } from './closedFront';
@@ -46,7 +46,7 @@ import {
 import { InstancePool, PoolView, type PoolSnapshot } from './pool';
 import { TextureOwner } from './textureOwnership';
 import { RoadSurfaceMaterial } from './roadSurface';
-import { MINUTES_PER_SECOND } from '../sim/constants';
+import { DAY_CLOCK_HOURS, DAY_START_HOUR, MINUTES_PER_SECOND } from '../sim/constants';
 import { releaseAttachedShaders, ShadowMaterialOwner } from './shadowMaterialOwnership';
 import { prepareScene } from './prepareScene';
 import { yieldForInput } from '../yieldForInput';
@@ -160,10 +160,12 @@ const SHOP_PAINT = [0x4a6b52, 0x8c5a4a, 0x50607e, 0x9a8656, 0x6d5a48, 0x7a6f62, 
 const FACADE_ALBEDO_GAIN = [1.8, 2.5, 1, 1, 1.3] as const;
 
 /** Renders New Temperance: streets, skyline, traffic, people and overlays. */
-/** The original's avenues are double-width: the two flanking streets are its
- * carriageways and the cell between them is a raised central island with
- * lamps and trees (it was drawn as 50 m of open asphalt). Only a bridge, where
- * the avenue crosses the river, stays roadway from parapet to parapet. */
+/** The original's avenues are double-width. The two flanking streets and the
+ * cell between them are one wide road, with a raised planted median down the
+ * middle of the cell (cityLandscape.ts AVENUE_MEDIAN) carrying the trees and
+ * the tramway; it was first drawn as 50 m of open asphalt, then as an island
+ * filling the whole cell. Only a bridge, where the avenue crosses the river,
+ * is roadway from parapet to parapet. */
 function avenueRoadway(b: Block | undefined): boolean {
   return riverCrossing(b);
 }
@@ -1095,8 +1097,9 @@ export class CityRenderer {
     // Only low-frequency stains and strategic colours use the city-size canvas.
     // Asphalt, road markings and names are sampled at their native resolution.
     for (const blk of activeBlocks(w)) {
-      // Bridges and the river have no slab over them; keep their asphalt.
-      if (avenueRoadway(blk) || blk.layout?.use === 'water') continue;
+      // Bridges and the river have no slab over them; keep their asphalt. So
+      // do the avenues, which are roadway either side of a median.
+      if (avenueRoadway(blk) || blk.layout?.use === 'water' || blk.layout?.use === 'avenue') continue;
       const rect = blockRect(blk);
       const pave = paveWidth(w), ox = (rect.x - pave) * sx, oy = (rect.y - pave) * sy;
       ctx.fillStyle = '#26262a';
@@ -1361,6 +1364,9 @@ export class CityRenderer {
     const outline = this.makingBuildingView ? null : this.buildingOutline;
     outline?.clear();
     const outlinePools = outline ? [...this.wallPools, ...this.cutawayWalls, ...this.decor].filter(p => p !== this.picks && p !== this.sightProxies) : [];
+    // Every part of the selected building (an apartment block is its tenement
+    // and its terraces); setInstances starts afresh, so they are handed over together.
+    const outlineRanges: { mesh: THREE.InstancedMesh; start: number; count: number }[] = [];
     const targetPools = [...this.wallPools, ...this.cutawayWalls, ...this.decor].filter(p => p !== this.picks && p !== this.sightProxies && p.mesh.instanceColor);
 
     if (this.buildingsRemoved) {
@@ -1392,9 +1398,9 @@ export class CityRenderer {
       const facing = lotFacing(lot, blk?.center, b.id);
       const prof = profileForLot(b, t, lot, facing);
       const fireStage=fireDamageStage(b,w.week);
-      const outlineStarts = outline && b.id === this.selectedBuildingId ? outlinePools.map(p => p.count) : null;
       // An apartment block's terraces are marked with its tenement.
       const siteId = b.cls === 'residential' ? siteBuilding(w, b).id : b.id;
+      const outlineStarts = outline && siteId === this.selectedBuildingId ? outlinePools.map(p => p.count) : null;
       const targetColor = this.planningSelected.has(siteId) ? this.planningRed : this.planningCrimes.has(siteId) ? this.planningYellow : this.planningAvailable.has(siteId) ? this.planningBlue : null;
       const targetStarts = targetColor ? targetPools.map(p => p.count) : null;
 
@@ -1786,10 +1792,11 @@ export class CityRenderer {
       }
       this.buildingIds.push(b.id);
       if (targetStarts && targetColor) targetPools.forEach((p, i) => p.tintFrom(targetStarts[i], targetColor, .78));
-      if (outlineStarts) outline!.setInstances(outlinePools.map((p, i) => ({
+      if (outlineStarts) outlinePools.forEach((p, i) => outlineRanges.push({
         mesh: p.mesh, start: outlineStarts[i], count: p.count - outlineStarts[i],
-      })));
+      }));
     }
+    if (outlineRanges.length) outline!.setInstances(outlineRanges);
 
     if (outline && !outline.partCount && this.selectedBuildingId != null) {
       const selected = w.buildings[this.selectedBuildingId], lot = selected && w.lots[selected.lotId];
@@ -1847,6 +1854,36 @@ export class CityRenderer {
       }
       if (avenueRoadway(blk)) continue;
       const rect = blockRect(blk), cx = blk.center.x, cz = blk.center.y;
+
+      if (blk.layout?.use === 'avenue') {
+        // The median alone is raised: a kerbed strip down the middle of the
+        // avenue (both ways where two cross), with the roadway either side of
+        // it. A lamp stands at each corner of a planted median.
+        const axes = avenueAxes(blk);
+        for (const axis of axes) {
+          const alongX = axis === 'x';
+          const length = (alongX ? rect.w : rect.h) + 2 * pave;
+          this.dummy.position.set(cx, 0, cz);
+          this.dummy.rotation.set(0, 0, 0);
+          this.dummy.scale.set((alongX ? length : AVENUE_MEDIAN) / (2 * SLAB_HALF), 1, (alongX ? AVENUE_MEDIAN : length) / (2 * SLAB_HALF));
+          this.dummy.updateMatrix();
+          const shade = 0.88 + r01(blk.id, 5) * 0.2;
+          this.colorScratch.setRGB(shade, shade * 0.99, shade * 0.96);
+          this.pavement.push(this.dummy.matrix, this.colorScratch);
+          this.dummy.scale.set(1, 1, 1);
+          if (axes.length > 1) continue;
+          for (let k = 0; k < 4; k++) {
+            const along = (k & 1 ? 1 : -1) * (length / 2 - 1.5), off = (k & 2 ? 1 : -1) * (AVENUE_MEDIAN / 2 - .8);
+            this.dummy.position.set(alongX ? cx + along : cx + off, KERB_H, alongX ? cz + off : cz + along);
+            this.dummy.rotation.set(0, (k * Math.PI) / 2, 0);
+            this.dummy.updateMatrix();
+            this.lamps.push(this.dummy.matrix);
+            this.lampGlow.push(this.dummy.matrix);
+          }
+        }
+        this.dummy.scale.set(1, 1, 1);
+        continue;
+      }
 
       this.dummy.position.set(cx, 0, cz);
       this.dummy.rotation.set(0, 0, 0);
@@ -2714,11 +2751,15 @@ export class CityRenderer {
   /** Day/night colouring across the working week. */
   private applyTimeOfDay(): number {
     const phase = this.world.phase === 'week' ? dayPhase(this.world.minute) : 0.36;
-    // The working day runs 8am to 4pm, so every minute of it is daylight: the
-    // sun only climbs from a low morning angle to midday and back down again.
-    const noon = Math.sin(Math.PI * clamp(0.28 + 0.44 * phase, 0, 1));
-    // The last hour of business goes golden and then flat.
-    const dusk = smoothstep(0.74, 1.0, phase);
+    // The day runs 8 am to 8 pm (issue 17 item 14). The sun is up from six to
+    // half past seven: it climbs from a low morning angle, stands highest a
+    // little after noon, and is down before the day's last half hour.
+    const hour = DAY_START_HOUR + DAY_CLOCK_HOURS * phase;
+    const noon = Math.max(0, Math.sin(Math.PI * (hour - 6) / 13.5));
+    // From late afternoon the light goes golden (dusk); from about half past
+    // six the city darkens under its lamps and lit windows (night).
+    const dusk = smoothstep(0.7, 0.94, phase);
+    const night = smoothstep(0.84, 1.0, phase);
 
     // As in the original's pre-lit street view, the sun comes from the
     // viewer's upper left whichever way the camera faces: the wall on the left
@@ -2736,23 +2777,28 @@ export class CityRenderer {
     // The original's street view sits in strong, warm sunlight all day with
     // deep shadow on the far faces (playtest, 28 September: warmer, higher
     // contrast). A strong warm sun with less fill; the day still swings.
-    this.sun.intensity = 2.2 + noon * 1.0;
-    this.sun.color.setRGB(1, lerp(0.8, 0.9, noon), lerp(0.58, 0.72, noon));
-    this.hemi.intensity = 0.5 + noon * 0.4;
-    this.hemi.color.setRGB(lerp(0.55, 0.62, noon), lerp(0.6, 0.7, noon), lerp(0.78, 0.85, noon));
+    // Evening: the sun reddens as it sinks and then all but goes, and the
+    // sky's fill falls with it, so the streets are read by lamplight. Enough
+    // is left that people and cars can still be followed.
+    this.sun.intensity = (2.2 + noon * 1.0) * (1 - night * 0.7);
+    this.sun.color.setRGB(1, lerp(0.8, 0.9, noon) - dusk * 0.2, lerp(0.58, 0.72, noon) - dusk * 0.3);
+    this.hemi.intensity = (0.5 + noon * 0.4) * (1 - night * 0.3);
+    this.hemi.color.setRGB(lerp(0.55, 0.62, noon) - night * 0.12, lerp(0.6, 0.7, noon) - night * 0.08, lerp(0.78, 0.85, noon));
     // Match the gain-four horizontal direction; I * direction.y is unchanged.
-    this.bounce.intensity = (0.15 + noon * 0.2) * (Math.hypot(720, 120, 560) / Math.hypot(180, 120, 140));
+    this.bounce.intensity = (0.15 + noon * 0.2) * (1 - night * 0.5) * (Math.hypot(720, 120, 560) / Math.hypot(180, 120, 140));
 
+    // A sunset glow that comes with the dusk and fades into a deep blue night.
+    const glow = dusk * (1 - night);
     const sky = new THREE.Color().setRGB(
-      lerp(0.1, 0.42, noon) + dusk * 0.16,
-      lerp(0.1, 0.48, noon) - dusk * 0.03,
-      lerp(0.15, 0.56, noon) - dusk * 0.08,
+      lerp(0.05, 0.42, noon) + glow * 0.3,
+      lerp(0.06, 0.48, noon) + glow * 0.06,
+      lerp(0.13, 0.56, noon) - glow * 0.06,
     );
     (this.scene.background as THREE.Color).copy(sky);
     if (this.scene.fog) (this.scene.fog as THREE.Fog).color.copy(sky);
 
     // Windows come on as the afternoon light goes.
-    const lightUp = smoothstep(0.66, 1.0, phase);
+    const lightUp = smoothstep(0.68, 0.92, phase);
     for (const m of this.facadeMats) m.emissiveIntensity = lightUp * 1.1;
     this.shopMat.emissiveIntensity = lightUp * 0.9;
     this.glowMat.opacity = dusk * 0.95;

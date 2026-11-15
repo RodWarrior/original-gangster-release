@@ -1,16 +1,17 @@
 import { MapAccess } from './MapAccess';
 import { useEffect, useRef, useState } from 'react';
 import { act, useGame } from '../app/store';
-import { defaultOptions, issueOrder, previewOrder, replaceOrder, validBuildingTarget } from '../sim/api';
+import { crewsAlreadySent, defaultOptions, issueOrder, previewOrder, replaceOrder, validBuildingTarget } from '../sim/api';
 import { selectableOrderPerson, selectableOrderSite } from '../app/orderSelection';
-import { MINUTES_PER_WEEK, ORDERS, ORDER_GROUPS } from '../sim/constants';
+import { MINUTES_PER_WEEK, ORDERS, ORDER_GROUPS, clockMinutes } from '../sim/constants';
 import { BUILDING_BY_ID, ILLEGAL_TYPES, ESTABLISHABLE_TYPES, coverQuality } from '../sim/data/buildings';
 import { buildingValue, expandTargets, fitsWeek, weekCharge } from '../sim/execution';
-import { SKILL_LABELS } from '../sim/types';
+import { SKILL_LABELS, type ID } from '../sim/types';
 import { donationAmount } from '../sim/charity';
-import { crewPeople, orderStaffing, readyForPlanning } from '../sim/orderStaffing';
-import { buildingName, buildingsOfBlock, money, placeName, skillAvg } from '../sim/world';
-import { buildingMapIntel } from '../sim/mapIntel';
+import { crewHasFirearm, crewPeople, orderStaffing, readyForPlanning } from '../sim/orderStaffing';
+import { orderSkill, orderSkillText } from '../sim/orderSkills';
+import { buildingName, buildingsOfBlock, money, placeName } from '../sim/world';
+import { buildingMapIntel, knownShopkeeper } from '../sim/mapIntel';
 import { Icon, Kicker, Rivets, Stars } from './common';
 
 /** Who a Recruit order can look for, and where each kind is found. */
@@ -51,6 +52,13 @@ export function JobCardPanel() {
   const targetCount = def.target === 'area' ? expanded.length : jc.buildingIds.length;
   const person = jc.personId != null ? w.people[jc.personId] : null;
 
+  // Crews already on the books for this job at a place or after a person: a
+  // second is a backup, and the card says so before it is sent.
+  const alreadySent = (target: { buildingId?: ID; personId?: ID }): string | null => {
+    const sent = crewsAlreadySent(w, gang.id, jc.type, target, jc.editingOrderId);
+    return sent.length ? `already targeted this week by ${sent.map(s => `${s.crew} (${s.men} ${s.men === 1 ? 'man' : 'men'})`).join(', ')}` : null;
+  };
+
   const prompt = (() => {
     switch (def.target) {
       case 'person':
@@ -58,7 +66,7 @@ export function JobCardPanel() {
       case 'building':
         return jc.buildingIds.length ? `Target: ${buildingName(w, jc.buildingIds[0])}` : 'Click a site on the map.';
       case 'area':
-        return targetCount ? `${targetCount} valid target${targetCount === 1 ? '' : 's'} selected` : 'Click blocks or drag an area. Repeat over a selected area to clear it.';
+        return targetCount ? `${targetCount} valid target${targetCount === 1 ? '' : 's'} selected` : 'Click blocks or drag an area; shift-click picks a single site. Repeat over a selected area to clear it.';
       case 'point':
         return jc.pos ? 'Position chosen' : 'Click where you want them to go.';
       default:
@@ -85,9 +93,10 @@ export function JobCardPanel() {
   const shortBy = price != null ? Math.max(0, Math.round(price - gang.cash)) : 0;
 
   // The people best suited to the job first, with the skills it calls on.
-  const suited = (p: (typeof people)[number]) => (def.skills.length ? skillAvg(p, def.skills) : 0);
+  const armedCrew = crewHasFirearm(team);
+  const suited = (p: (typeof people)[number]) => (def.skills.length ? orderSkill(p, def, armedCrew) : 0);
   const ranked = [...people].sort((a, b) => Number(readyForPlanning(w, b)) - Number(readyForPlanning(w, a)) || suited(b) - suited(a));
-  const skillNote = (p: (typeof people)[number]) => def.skills.map((k) => `${SKILL_LABELS[k]} ${p.skills[k]}★`).join(' · ');
+  const skillNote = (p: (typeof people)[number]) => [...new Set([...def.skills, ...(def.armedSkills ?? [])])].map((k) => `${SKILL_LABELS[k]} ${p.skills[k]}★`).join(' · ');
 
   const canConfirm = (() => {
     if (!team || staffing?.reason) return false;
@@ -110,7 +119,7 @@ export function JobCardPanel() {
     ? { ...jc.opts, amount: donationAmount(w, land) } : jc.opts;
   const draft = previewOrder(w, gang.id, { ...jc, opts });
   const dispatchIssue = staffing?.reason ?? (jc.type==='export'&&!team?.vehicles.truck ? 'Allocate a truck to this crew to export goods.' : null);
-  const estimate = draft ? (draft.estimatedMinutes / 60).toFixed(1) + 'h estimated crew time' : 'Choose a crew';
+  const estimate = draft ? (clockMinutes(draft.estimatedMinutes) / 60).toFixed(1) + 'h estimated crew time' : 'Choose a crew';
   // The crew's week is its people's time: a job for one man of five takes a fifth of what it would with all five on it.
   const committed = Math.max(0, (team?.timeUsed ?? 0) - (team && previous ? weekCharge(w, team, previous) : 0));
   const charge = team && draft ? weekCharge(w, team, draft) : 0;
@@ -179,7 +188,7 @@ export function JobCardPanel() {
                 Crew {crewIndex} · {lt?.name ?? team?.name ?? 'Crew'}
               </b>
             </span>
-            <span className="muted tiny">{def.skills.join(' · ') || 'no skill needed'}</span>
+            <span className="muted tiny">{orderSkillText(def) ? `Skill used: ${orderSkillText(def)}` : 'no skill needed'}</span>
           </div>
 
           <div className="target-box">
@@ -208,14 +217,21 @@ export function JobCardPanel() {
                   const intel = buildingMapIntel(b, gang.id);
                   const holder = intel.ownerGangId != null ? (intel.ownerGangId === gang.id ? 'yours' : w.gangs[intel.ownerGangId]?.name)
                     : intel.protectionGangId != null ? `pays ${intel.protectionGangId === gang.id ? 'you' : w.gangs[intel.protectionGangId]?.name}` : null;
-                  const owner = b.ownerPersonId != null ? w.people[b.ownerPersonId]?.name : null;
+                  // Your own place is run by your manager; the shopkeeper who sold it is not its owner.
+                  const manager = intel.ownerGangId === gang.id && b.managerId != null ? w.people[b.managerId] : null;
+                  const owner = manager ? `run by ${manager.name}` : knownShopkeeper(w, b, gang.id)?.name ?? null;
+                  const sent = alreadySent({ buildingId: id });
                   return <li key={id}>
                     <button className="order-target-link" title="Show on the map" onClick={() => useGame.getState().requestCamera({ ...w.lots[b.lotId].center })}>{placeName(w, b)}</button>
                     {(holder || owner) && <span className="muted"> · {[holder, owner].filter(Boolean).join(' · ')}</span>}
+                    {sent && <span className="job-also-sent"> · {sent}</span>}
                   </li>;
                 })}
                 {expanded.length > 8 && <li className="muted">…and {expanded.length - 8} more</li>}
               </ul>
+            )}
+            {def.target === 'person' && person && alreadySent({ personId: person.id }) && (
+              <div className="sub job-also-sent">{alreadySent({ personId: person.id })}</div>
             )}
             {def.target === 'person' && (
               <div className="sub">
@@ -401,7 +417,7 @@ export function JobCardPanel() {
                   ))}
               </select>
               {def.skills.length > 0 && <div className="muted tiny" style={{ marginTop: 4 }}>
-                Listed best first for this job: {def.skills.map((k) => SKILL_LABELS[k].toLowerCase()).join(' and ')}.
+                Listed best first for this job: {orderSkillText(def).toLowerCase()}.{def.armedSkills && !armedCrew ? ' This crew has no firearms.' : ''}
               </div>}
             </div>
           )}

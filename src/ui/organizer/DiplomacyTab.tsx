@@ -44,7 +44,11 @@ export function DiplomacyTab() {
       ? gang.knownPeople
           .map((id) => w.people[id])
           .filter((p) => p && p.gangId === viewed.id && p.status !== 'dead')
+          // The boss heads the list, as the Chief of Police heads his.
+          .sort((a, b) => Number(b.id === viewed.bossId) - Number(a.id === viewed.bossId))
       : [];
+  // A gang's boss is known by name to the whole city; where he is, is not.
+  const viewedBoss = viewed != null ? w.people[viewed.bossId] : null;
 
   return (
     <div>
@@ -127,6 +131,12 @@ export function DiplomacyTab() {
             <span>Temperament</span>
             <b>{viewed.personality}</b>
           </div>
+          {viewedBoss && viewedBoss.status !== 'dead' && (
+            <div className="kv">
+              <span>Boss</span>
+              <b>{viewedBoss.name}</b>
+            </div>
+          )}
           <div style={{ marginTop: 8 }}>
             <b className="tiny">People you have identified ({knownOfViewed.length})</b>
             {knownOfViewed.length === 0 ? (
@@ -140,7 +150,7 @@ export function DiplomacyTab() {
                     onClick={() => centreOnPerson(p.id)}
                   >
                     <span className="name tiny">{p.name}</span>
-                    <span className="muted tiny">{p.role}</span>
+                    <span className="muted tiny">{p.id === viewed.bossId ? 'boss' : p.role}</span>
                   </button>
                 ))}
               </div>

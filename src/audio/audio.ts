@@ -19,7 +19,7 @@ const PREFS_KEY = 'og.audio';
 interface AudioPrefs { music: number; sfx: number; menuMusic: boolean; gameMusic: boolean }
 
 function readPrefs(): AudioPrefs {
-  const prefs: AudioPrefs = { music: 0.35, sfx: 0.5, menuMusic: true, gameMusic: true };
+  const prefs: AudioPrefs = { music: 0.2, sfx: 0.5, menuMusic: true, gameMusic: true };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<AudioPrefs>;
     if (typeof saved.music === 'number' && saved.music >= 0 && saved.music <= 1) prefs.music = saved.music;

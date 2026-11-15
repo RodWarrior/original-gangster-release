@@ -500,6 +500,8 @@ export interface Order {
   results: string[];
   /** The report lines that are an owner's refusal, and the premises each came from. */
   refusals?: { line: number; buildingId: ID }[];
+  /** Other report lines about a place (a purchase), which lead to it on the map. */
+  links?: { line: number; buildingId: ID }[];
   failReason: string | null;
   /** Street orders are transient and re-entrant. */
   isStreetOrder: boolean;
@@ -846,6 +848,11 @@ export interface GameOptions {
    * before the original 40 × 32 grid was restored. */
   cityHeight?: number;
   cityLayout?: 'classic' | 'varied';
+  /** Show the Accountant's FBI suspicion and evidence gauges and the Suspicion
+   * graph. The original showed neither, so a new game leaves them off unless
+   * asked for. Absent in games begun before this was chosen with the game:
+   * those keep the old per-install switch (store.ts bureauGaugesShown). */
+  bureauGauges?: boolean;
   /** A hand-crafted scenario, or one of the four lessons, if the game is one. */
   scenarioId?: string;
   tutorialId?: number;

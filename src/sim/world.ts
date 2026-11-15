@@ -3,6 +3,7 @@ import {
   CELL,
   DAY_NAMES,
   DAY_START_HOUR,
+  clockMinutes,
   MINUTES_PER_DAY,
   STREET_WIDTH,
   VEHICLES,
@@ -388,7 +389,7 @@ export function dayIndex(minute: number): number {
 
 export function clockLabel(minute: number): string {
   const d = dayIndex(minute);
-  const within = minute - d * MINUTES_PER_DAY;
+  const within = Math.floor(clockMinutes(minute - d * MINUTES_PER_DAY));
   const hour = DAY_START_HOUR + Math.floor(within / 60);
   const min = Math.floor(within % 60);
   const ampm = hour >= 12 ? 'pm' : 'am';

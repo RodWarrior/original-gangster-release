@@ -65,9 +65,31 @@ function makeSkills(rng: Rng, quality = 1): Skills {
   return s;
 }
 
-function makeName(rng: Rng, female: boolean): string {
-  const first = female ? rng.pick(FEMALE_FIRST) : rng.pick(MALE_FIRST);
-  return `${first} ${rng.pick(SURNAMES)}`;
+// The names borne in each city, so that no two people share one. Kept beside
+// the world, not in it: people are never removed, so it is rebuilt from them
+// whenever a world arrives without it (a loaded save).
+const namesInUse = new WeakMap<WorldState, Set<string>>();
+function cityNames(w: WorldState): Set<string> {
+  let names = namesInUse.get(w);
+  if (!names) { names = new Set(Object.values(w.people).map(p => p.name)); namesInUse.set(w, names); }
+  return names;
+}
+
+/**
+ * A first name and surname nobody in the city has yet. The two draws are the
+ * same as ever; a name already taken moves on to the next surname in the list
+ * (then the next first name) without drawing again, so the city's dice roll as
+ * they did before names were kept apart.
+ */
+function makeName(w: WorldState, rng: Rng, female: boolean): string {
+  const firsts = female ? FEMALE_FIRST : MALE_FIRST;
+  const first = rng.pick(firsts), surname = rng.pick(SURNAMES);
+  const taken = cityNames(w), f = firsts.indexOf(first), s = SURNAMES.indexOf(surname);
+  for (let step = 0; step < firsts.length * SURNAMES.length; step++) {
+    const name = `${firsts[(f + Math.floor(step / SURNAMES.length)) % firsts.length]} ${SURNAMES[(s + step) % SURNAMES.length]}`;
+    if (!taken.has(name)) return name;
+  }
+  return `${first} ${surname}`; // every pairing is in use: a namesake after all
 }
 
 export function createPerson(
@@ -80,7 +102,7 @@ export function createPerson(
   const female = opts.female ?? rng.chance(role === 'hood' ? 0.22 : 0.4);
   const p: Person = {
     id: newId(w),
-    name: opts.name ?? makeName(rng, female),
+    name: opts.name ?? makeName(w, rng, female),
     female,
     portrait: opts.portrait ?? rng.int(0, 23),
     role,
@@ -111,17 +133,20 @@ export function createPerson(
     streetOrder: null,
   };
   w.people[p.id] = p;
+  cityNames(w).add(p.name);
   return p;
 }
 
-/** Pay demand for a hood scales with their overall quality. */
+/** Pay demand for a hood scales with their overall quality; an accountant's
+ * or lawyer's with Intelligence, the one skill they are hired for (and the one
+ * the lists of specialists for hire show beside the price). */
 export function hoodPayDemand(p: Person, role: PersonRole): number {
   let total = 0;
   for (const k of SKILLS) total += p.skills[k];
   const avg = total / SKILLS.length;
   let base = 30 + avg * 26;
   if (role === 'lieutenant') base += 50;
-  if (role === 'accountant' || role === 'lawyer') base = 90 + avg * 44;
+  if (role === 'accountant' || role === 'lawyer') base = 90 + p.skills.intelligence * 44;
   return Math.round(base / 5) * 5;
 }
 
@@ -374,6 +399,9 @@ export function createWorld(options: GameOptions): { world: WorldState; rng: Rng
     auditResults: {},
     weekLog: [],
   };
+  // The player's boss is named by the player and arrives after the citizens:
+  // his name is spoken for before any of them is given one.
+  cityNames(w).add(bossName(options.playerName, options.playerNickname));
 
   // Register the empty-land pseudo type so lookups never miss.
   BUILDING_BY_ID[EMPTY_TYPE.id] = EMPTY_TYPE;

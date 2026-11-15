@@ -19,6 +19,7 @@ import { Avatar, ConfirmDialog, Empty, Hint, Panel, Pill, Stars } from '../commo
 import { VEHICLES, VEHICLE_ORDER } from '../../sim/constants';
 import { SpecialistJobList } from '../SpecialistJobCard';
 import { peopleList } from '../../sim/entityLists';
+import { specialistAskingWage } from '../../sim/originalWages';
 import { quitGangPayroll } from '../../sim/payrollMark';
 
 export function LawyerTab() {
@@ -122,7 +123,7 @@ export function LawyerTab() {
                     <span className="tiny">{p.name}</span>
                     <div className="row" style={{ gap: 5 }}>
                       <Stars value={p.skills.intelligence} />
-                      <span className="muted tiny mono">{money(p.payDemand)}</span>
+                      <span className="muted tiny mono">{money(specialistAskingWage(w, p, gang.id))}</span>
                       {gang.recruitIds.includes(p.id) && (
                         <button
                           className="btn sm"

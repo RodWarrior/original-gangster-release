@@ -15,7 +15,7 @@ describe('sound settings', () => {
   it('are kept between sessions, with the music switches', async () => {
     const values = storage();
     const first = (await import('../src/audio/audio')).audio;
-    expect([first.musicVolume, first.sfxVolume, first.menuMusic, first.gameMusic]).toEqual([0.35, 0.5, true, true]);
+    expect([first.musicVolume, first.sfxVolume, first.menuMusic, first.gameMusic]).toEqual([0.2, 0.5, true, true]);
     first.setMusicVolume(0.8); first.setSfxVolume(0.1); first.setMusicPlaces({ menuMusic: false });
     vi.resetModules();
     const next = (await import('../src/audio/audio')).audio;
@@ -26,6 +26,6 @@ describe('sound settings', () => {
   it('ignore damaged or out-of-range values', async () => {
     storage({ 'og.audio': '{"music":7,"sfx":"loud","menuMusic":1}' });
     const a = (await import('../src/audio/audio')).audio;
-    expect([a.musicVolume, a.sfxVolume, a.menuMusic]).toEqual([0.35, 0.5, true]);
+    expect([a.musicVolume, a.sfxVolume, a.menuMusic]).toEqual([0.2, 0.5, true]);
   });
 });

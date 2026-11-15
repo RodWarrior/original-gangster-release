@@ -115,15 +115,26 @@ export function drawCityLandscape(ctx: CanvasRenderingContext2D, w: WorldState,
     ctx.fillStyle = PLAN.pavement;
     ctx.fillRect(X(r.x) - pave, Y(r.y) - pave, S(r.w) + pave * 2, S(r.h) + pave * 2);
   }
-  // Avenue lane markings (the original's double-width avenues).
+  // The original's double-width avenues: a planted strip down the middle of
+  // the road, as the street view shows it, with a lane line either side.
+  const median = 12, laneOff = CELL * .3;
+  ctx.fillStyle = PLAN.park;
+  for (const b of blocks) {
+    if (b.layout?.use !== 'avenue' || !b.original) continue;
+    const c = b.original.content, x0 = b.gx * CELL, y0 = b.gy * CELL;
+    if (c === 34 || c === 41) ctx.fillRect(X(x0 + PLAN_STREET_HALF), Y(y0 + CELL / 2 - median / 2), S(CELL - PLAN_STREET_HALF * 2), S(median));
+    if (c === 35) ctx.fillRect(X(x0 + CELL / 2 - median / 2), Y(y0 + PLAN_STREET_HALF), S(median), S(CELL - PLAN_STREET_HALF * 2));
+  }
   if (px * CELL >= 22) {
     ctx.strokeStyle = PLAN.lane; ctx.lineWidth = Math.max(1, S(.35)); ctx.setLineDash([S(3), S(3)]);
     ctx.beginPath();
     for (const b of blocks) {
       if (b.layout?.use !== 'avenue' || !b.original) continue;
       const c = b.original.content, x0 = b.gx * CELL, y0 = b.gy * CELL;
-      if (c === 34 || c === 41) { ctx.moveTo(X(x0), Y(y0 + CELL / 2)); ctx.lineTo(X(x0 + CELL), Y(y0 + CELL / 2)); }
-      if (c === 35) { ctx.moveTo(X(x0 + CELL / 2), Y(y0)); ctx.lineTo(X(x0 + CELL / 2), Y(y0 + CELL)); }
+      for (const off of [-laneOff, laneOff]) {
+        if (c === 34 || c === 41) { ctx.moveTo(X(x0), Y(y0 + CELL / 2 + off)); ctx.lineTo(X(x0 + CELL), Y(y0 + CELL / 2 + off)); }
+        if (c === 35) { ctx.moveTo(X(x0 + CELL / 2 + off), Y(y0)); ctx.lineTo(X(x0 + CELL / 2 + off), Y(y0 + CELL)); }
+      }
     }
     ctx.stroke(); ctx.setLineDash([]);
   }

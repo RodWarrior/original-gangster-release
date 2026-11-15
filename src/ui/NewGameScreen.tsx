@@ -331,6 +331,12 @@ export function NewGameScreen() {
                 <span className="scene-label">Opponents</span>
                 {seg(options.opponents, ['passive', 'normal', 'aggressive', 'random'] as const, cap, (v) => set({ opponents: v }))}
               </div>
+              <div className="field">
+                <span className="scene-label">Bureau gauges</span>
+                {seg(options.bureauGauges ? 'shown' : 'hidden', ['hidden', 'shown'] as const, cap, (v) => set({ bureauGauges: v === 'shown' }))}
+                <div className="scene-small">The Accountant's FBI suspicion and evidence gauges, and the Suspicion graph. The original showed
+                  neither: hidden, you judge the heat from your own books. Fixed for the whole game.</div>
+              </div>
             </div>
 
             <div className="options-col">

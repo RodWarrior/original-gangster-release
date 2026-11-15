@@ -63,7 +63,6 @@ export function OptionsTab() {
   const roadNames = useGame((s) => s.roadNames);
   const mouseReversal = useGame((s) => s.mouseReversal);
   const textureQuality = useGame((s) => s.textureQuality);
-  const bureauGauges = useGame((s) => s.bureauGauges);
   const setRoadNames = useGame((s) => s.setRoadNames);
   const setAutoLowerRoofs = useGame((s) => s.setAutoLowerRoofs);
   const startGame = useGame((s) => s.startGame);
@@ -198,14 +197,6 @@ export function OptionsTab() {
         </button>
         <div className="muted tiny" style={{ marginTop: 6 }}>
           Standard uses a quarter of the graphics memory for people, cars and trees, for older graphics cards. It applies when the city next loads.
-        </div>
-        <button aria-pressed={bureauGauges} className={`btn sm${bureauGauges ? ' on' : ''}`} style={{ marginTop: 8 }}
-          onClick={() => useGame.getState().setBureauGauges(!bureauGauges)}>
-          {bureauGauges ? 'Bureau gauges: shown' : 'Bureau gauges: hidden'}
-        </button>
-        <div className="muted tiny" style={{ marginTop: 6 }}>
-          The Accountant's FBI suspicion and evidence gauges, and the Suspicion graph. The original showed neither:
-          hidden, you judge the heat from your own books, your crimes and who you have paid.
         </div>
         <InterfaceSize />
       </Panel>

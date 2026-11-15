@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { act, useGame } from '../../app/store';
+import { act, bureauGaugesShown, useGame } from '../../app/store';
 import { financeNet } from '../../sim/finances';
 import {
   assignStaffVehicle,
@@ -15,15 +15,16 @@ import { reservedAudit, specialistTargetEligible } from '../../sim/specialistJob
 import { Avatar, ConfirmDialog, Empty, Hint, Meter, Panel, Pill, Stars } from '../common';
 import { SpecialistJobList } from '../SpecialistJobCard';
 import { peopleList } from '../../sim/entityLists';
+import { specialistAskingWage } from '../../sim/originalWages';
 import { taxNotCoveredUp } from '../../sim/systems/taxes';
 
 export function AccountantTab() {
   const sim = useGame((s) => s.sim)!;
   const notify = useGame((s) => s.notify);
-  const bureauGauges = useGame((s) => s.bureauGauges);
   useGame((s) => s.version);
 
   const w = sim.world;
+  const bureauGauges = bureauGaugesShown(w.options);
   const gang = sim.playerGang;
   const acct = gang.accountantId != null ? w.people[gang.accountantId] : null;
   const audit = w.auditResults[gang.id];
@@ -117,7 +118,7 @@ export function AccountantTab() {
                     <span className="tiny">{p.name}</span>
                     <div className="row" style={{ gap: 5 }}>
                       <Stars value={p.skills.intelligence} />
-                      <span className="muted tiny mono">{money(p.payDemand)}</span>
+                      <span className="muted tiny mono">{money(specialistAskingWage(w, p, gang.id))}</span>
                       {gang.recruitIds.includes(p.id) && (
                         <button
                           className="btn sm"
@@ -203,11 +204,16 @@ export function AccountantTab() {
       </Panel>
 
       <Panel title="Risk">
-        <div className="row between tiny" style={{ marginBottom: 3 }}>
-          <span>Risky money at last settlement</span>
-          <b className="mono">{money(gang.riskyMoney)}</b>
-        </div>
-        <Meter value={Math.min(100, gang.riskyMoney / 200)} />
+        {/* The risky money is the accountant's reckoning: without one on the books there is nobody to make it. */}
+        {acct?.status === 'active' ? <>
+          <div className="row between tiny" style={{ marginBottom: 3 }}>
+            <span>Risky money at last settlement</span>
+            <b className="mono">{money(gang.riskyMoney)}</b>
+          </div>
+          <Meter value={Math.min(100, gang.riskyMoney / 200)} />
+        </> : <div className="muted tiny" style={{ marginBottom: 3 }}>
+          Hire an accountant to learn how much of your money is at risk.
+        </div>}
         {bureauGauges ? <>
           <div className="row between tiny" style={{ margin: '9px 0 3px' }}>
             <span>FBI suspicion</span>
@@ -220,7 +226,7 @@ export function AccountantTab() {
           </div>
           <Meter value={gang.evidence} />
         </> : <div className="muted tiny" style={{ margin: '9px 0 3px' }}>
-          How closely the Bureau is watching is for you to judge from your books (Game Options → View shows the gauges).
+          How closely the Bureau is watching is for you to judge from your books (the gauges are chosen when a game is set up).
         </div>}
         <Hint>
           Illegal income you cannot explain is what brings the Bureau. Buy legal businesses to soak

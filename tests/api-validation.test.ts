@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultGameOptions } from '../src/app/newGame';
-import { allocateBlocks, buyVehicle, buyWeapon, cancelOrder, defaultOptions, issueOrder, issueStreetOrder, nearTerritory, replaceOrder, sellVehicle, sellWeapon, transferVehicle, transferWeapon, validBuildingTarget } from '../src/sim/api';
+import { allocateBlocks, buyVehicle, buyWeapon, cancelOrder, crewsAlreadySent, defaultOptions, issueOrder, issueStreetOrder, nearTerritory, replaceOrder, sellVehicle, siteAlreadyOrdered, sellWeapon, transferVehicle, transferWeapon, validBuildingTarget } from '../src/sim/api';
 import type { ApiResult, IssueOrderInput } from '../src/sim/api';
 import { CELL, MINUTES_PER_WEEK, ORDERS } from '../src/sim/constants';
 import { isValidAreaTarget } from '../src/sim/execution';
@@ -44,18 +44,30 @@ describe('site rules shared by the map and accepted orders', () => {
     expect(issueOrder(w, gang.id, { teamId: team.id, type: 'buyPremises', buildingIds: [land.id] }).ok).toBe(true);
   });
 
-  it('refuses a second raid on a site already raided this week, by any crew, until the first is cancelled', () => {
+  it('lets a second crew be sent to raid the same site as a backup, and still refuses a second purchase of one', () => {
     const { w, gang, team } = fixture();
     const store = allBuildings(w).find((b) => b.ownerGangId == null && b.cls === 'commercial' && b.state === 'trading')!;
     expect(issueOrder(w, gang.id, { teamId: team.id, type: 'raid', buildingIds: [store.id] }).ok).toBe(true);
     const first = w.orders[team.orderIds[0]];
-    rejectsWithoutMutation(w, () => issueOrder(w, gang.id, { teamId: team.id, type: 'raid', buildingIds: [store.id] }));
-    // A different job on the same site, and editing the raid itself, are still allowed.
+    // As in the original, several crews may go after one site (issue 17 item 30): the planner is told who has it.
+    expect(siteAlreadyOrdered(w, gang.id, 'raid', store.id)).toBe(false);
+    expect(crewsAlreadySent(w, gang.id, 'raid', { buildingId: store.id })).toEqual([{ crew: team.name, men: first.opts.manpower }]);
+    expect(issueOrder(w, gang.id, { teamId: team.id, type: 'raid', buildingIds: [store.id] }).ok).toBe(true);
+    expect(crewsAlreadySent(w, gang.id, 'raid', { buildingId: store.id })).toHaveLength(2);
+    // The order being edited is not its own backup.
+    expect(crewsAlreadySent(w, gang.id, 'raid', { buildingId: store.id }, first.id)).toHaveLength(1);
+    // A different job on the same site, and editing the raid itself, are allowed as before.
     expect(issueOrder(w, gang.id, { teamId: team.id, type: 'smashUp', buildingIds: [store.id] }).ok).toBe(true);
     expect(replaceOrder(w, gang.id, first.id, { teamId: team.id, type: 'raid', buildingIds: [store.id], opts: { priority: true } }).ok).toBe(true);
     const raid = Object.values(w.orders).find((o) => o.type === 'raid')!;
     expect(cancelOrder(w, raid.id).ok).toBe(true);
-    expect(issueOrder(w, gang.id, { teamId: team.id, type: 'raid', buildingIds: [store.id] }).ok).toBe(true);
+    // A purchase is made once: a second order for the same premises is still one too many.
+    for (const type of ['buyPremises', 'setUpBusiness', 'runBusiness'] as const) {
+      const other = Object.values(w.orders).find((o) => o.type === 'raid')!;
+      other.type = type;
+      expect(siteAlreadyOrdered(w, gang.id, type, store.id)).toBe(true);
+      other.type = 'raid';
+    }
   });
 });
 

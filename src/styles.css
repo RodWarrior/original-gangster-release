@@ -17,6 +17,10 @@
   --paper-lo: #dccb9f;
   --ink: #2a1f14;
   --ink-2: #6e5b3f;
+  /* Used by the clipboard, street loading and the ledgers but never given a
+     value: their greys and reds fell back to whatever colour they inherited. */
+  --ink-faint: var(--ink-2);
+  --blood: var(--red);
   --rule: #cdbf9b;
   --dots: #bdb094;
 
@@ -2721,7 +2725,8 @@ input[type='range']::-moz-range-thumb {
   border-bottom: 1px dotted var(--dots);
   font-size: 13px;
 }
-.report-refusal {
+.report-refusal,
+.report-link {
   display: block;
   margin-top: 2px;
   padding: 0;
@@ -2732,6 +2737,10 @@ input[type='range']::-moz-range-thumb {
   text-decoration: underline;
   cursor: pointer;
 }
+/* A site or person another crew is already being sent after this week. */
+.job-also-sent { color: var(--police); font-weight: 500; }
+/* A report line about a place that is not a refusal: a link in plain ink. */
+.report-link { color: var(--ink); }
 .report-item .row > b {
   font-weight: 500;
 }
@@ -2799,6 +2808,13 @@ input[type='range']::-moz-range-thumb {
   display: block;
   font-size: 11px;
   color: var(--brass-label);
+}
+/* Which skill the order is done with, beside its cost. */
+.order-row .order-skill {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-2);
 }
 .order-row .desc {
   display: block;
@@ -4473,7 +4489,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .clip-section .clip-count { color: var(--ink-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 .clip-swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; }
 .clip-row .name { display: flex; flex-direction: column; gap: 1px; }
-.clip-skills { font-size: 11px; font-weight: 400; color: var(--ink-faint); }
+/* A known gangster's name is in his gang's colour; his skills are in ink, to be read. */
+.clip-skills { font-size: 11px; font-weight: 400; color: var(--ink); }
 
 .job-sites { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12px; line-height: 1.5; max-height: 132px; overflow-y: auto; }
 

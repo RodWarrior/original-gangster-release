@@ -15,7 +15,7 @@ import {
 import { MINUTES_PER_WEEK, ORDERS, ORDER_GROUPS } from '../../sim/constants';
 import type { ID, Order, Team, WorldState } from '../../sim/types';
 import { buildingName, money, placeName } from '../../sim/world';
-import { buildingMapIntel } from '../../sim/mapIntel';
+import { buildingMapIntel, knownShopkeeper } from '../../sim/mapIntel';
 import { ConfirmDialog, Dial, Empty, Hint, Icon, Kicker, Pill, SkillList, Stamp } from '../common';
 import { Portrait } from '../Portrait';
 import { resourceDragProps, useResourceDrop } from '../resourceDrag';
@@ -54,7 +54,7 @@ function describeTargets(o: Order, w: WorldState): string {
 function targetDetails(o: Order, w: WorldState, gangId: ID): string {
   const lines = o.targetBuildingIds.map((id) => w.buildings[id]).filter(Boolean).slice(0, 14).map((b) => {
     const intel = buildingMapIntel(b, gangId);
-    const owner = b.ownerPersonId != null && intel.siteKnown ? w.people[b.ownerPersonId]?.name : undefined;
+    const owner = intel.siteKnown ? knownShopkeeper(w, b, gangId)?.name : undefined;
     const holder = intel.ownerGangId != null ? `owned by ${intel.ownerGangId === gangId ? 'you' : w.gangs[intel.ownerGangId]?.name}`
       : intel.protectionGangId != null ? `pays ${intel.protectionGangId === gangId ? 'you' : w.gangs[intel.protectionGangId]?.name}` : 'independent';
     return `${placeName(w, b)} · ${holder}${owner ? ` · ${owner}` : ''}`;
@@ -515,13 +515,15 @@ function ReportsPanel({ teamId }: { teamId: ID }) {
               </b>
               <Pill kind={o.state === 'done' ? 'good' : 'bad'}>{o.state}</Pill>
             </div>
-            {o.failReason && <div className="muted">{o.failReason}</div>}
+            {/* An order that failed outright gives its last refusal as the reason: that line is already below. */}
+            {o.failReason && !o.results.includes(o.failReason) && <div className="muted">{o.failReason}</div>}
             {o.results.map((r, i) => {
-              const site = w.buildings[o.refusals?.find((x) => x.line === i)?.buildingId ?? -1];
+              const refusal = o.refusals?.find((x) => x.line === i);
+              const site = w.buildings[(refusal ?? o.links?.find((x) => x.line === i))?.buildingId ?? -1];
               return site ? (
                 <button
                   key={i}
-                  className="report-refusal tiny"
+                  className={`${refusal ? 'report-refusal' : 'report-link'} tiny`}
                   title="Show on the map"
                   onClick={() => {
                     selectBuilding(site.id);

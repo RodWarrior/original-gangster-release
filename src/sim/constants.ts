@@ -7,6 +7,16 @@ export const MINUTES_PER_WEEK = DAYS_PER_WEEK * MINUTES_PER_DAY;
 export const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 /** Working day starts at 8am. */
 export const DAY_START_HOUR = 8;
+/**
+ * What the clock shows: a twelve-hour day, 8 am to 8 pm (issue 17 item 14).
+ * The working day is still 480 simulated minutes, and the week the original's
+ * 12 real minutes at normal speed, so one and a half clock minutes pass for
+ * each simulated one. Everything the player reads as time (the clock, an
+ * order's hours) goes through clockMinutes; nothing the simulation counts in
+ * changes, so orders take the share of the week they always did.
+ */
+export const DAY_CLOCK_HOURS = 12;
+export const clockMinutes = (minutes: number): number => minutes * DAY_CLOCK_HOURS * 60 / MINUTES_PER_DAY;
 
 /** World geometry, in metres. */
 export const BLOCK_SIZE = 40;
@@ -166,8 +176,12 @@ export interface OrderDef {
   target: 'area' | 'building' | 'person' | 'point' | 'none';
   /** Consumes the whole week regardless of targets. */
   wholeWeek?: boolean;
-  /** Primary skills used for the outcome roll. */
+  /** The skills the outcome roll uses (orderSkills.ts). Stealth is not among
+   * them: it decides who sees the crew, not whether the job comes off. */
   skills: (keyof typeof SKILL_WEIGHTS_DUMMY)[];
+  /** The skills a man carrying a firearm may use instead, where a gun changes
+   * how the job is done: he does it whichever way he is better at. */
+  armedSkills?: (keyof typeof SKILL_WEIGHTS_DUMMY)[];
   /** Base crime severity: drives witnesses, heat and arrest risk. 0 = not a crime. */
   severity: number;
   /** Options this order supports beyond manpower/priority/wait. */
@@ -352,7 +366,7 @@ export const ORDERS: Record<OrderType, OrderDef> = {
     desc: 'Lean on shop owners who refuse you — those who turned down your protection or stopped paying.',
     minutesPerTarget: 67,
     target: 'area',
-    skills: ['intimidation'],
+    skills: ['intimidation', 'fists'],
     severity: 2,
   },
   extort: {
@@ -374,7 +388,8 @@ export const ORDERS: Record<OrderType, OrderDef> = {
     desc: 'Rob a business. With a truck your hoods can carry off the goods as well as the cash.',
     minutesPerTarget: 100,
     target: 'building',
-    skills: ['stealth', 'firearms'],
+    skills: ['fists'],
+    armedSkills: ['firearms'],
     severity: 5,
   },
   kidnap: {
@@ -385,7 +400,8 @@ export const ORDERS: Record<OrderType, OrderDef> = {
     desc: 'Abduct a rival gang member. Dangerous, but they arrive at your office with money and secrets.',
     minutesPerTarget: 500,
     target: 'person',
-    skills: ['stealth', 'fists', 'intimidation'],
+    skills: ['intimidation', 'fists'],
+    armedSkills: ['intimidation', 'firearms'],
     severity: 6,
   },
 
@@ -398,7 +414,7 @@ export const ORDERS: Record<OrderType, OrderDef> = {
     desc: 'Wreck the place. Usually puts a site out of commission for a week or two.',
     minutesPerTarget: 67,
     target: 'building',
-    skills: ['intelligence', 'stealth', 'fists'],
+    skills: ['fists'],
     severity: 4,
     supportsPublic: true,
   },
@@ -410,7 +426,7 @@ export const ORDERS: Record<OrderType, OrderDef> = {
     desc: 'Give someone a beating. A high knives rating can turn a beating into a murder charge.',
     minutesPerTarget: 400,
     target: 'person',
-    skills: ['intelligence', 'fists'],
+    skills: ['fists'],
     severity: 5,
   },
   torch: {
@@ -421,7 +437,7 @@ export const ORDERS: Record<OrderType, OrderDef> = {
     desc: 'Maximum damage at minimum cost. No explosives required.',
     minutesPerTarget: 67,
     target: 'building',
-    skills: ['arson', 'stealth', 'intelligence'],
+    skills: ['arson'],
     severity: 7,
     supportsPublic: true,
   },
@@ -433,7 +449,7 @@ export const ORDERS: Record<OrderType, OrderDef> = {
     desc: 'Level the building, and possibly the block. Consumes a bundle of explosives.',
     minutesPerTarget: 67,
     target: 'building',
-    skills: ['explosives', 'stealth', 'intelligence'],
+    skills: ['explosives'],
     severity: 9,
     supportsPublic: true,
   },
@@ -445,7 +461,8 @@ export const ORDERS: Record<OrderType, OrderDef> = {
     desc: 'Permanent removal. Use when every other alternative is exhausted.',
     minutesPerTarget: 550,
     target: 'person',
-    skills: ['firearms', 'stealth', 'intimidation'],
+    skills: ['knives'],
+    armedSkills: ['firearms'],
     severity: 10,
   },
   ambush: {
@@ -457,7 +474,8 @@ export const ORDERS: Record<OrderType, OrderDef> = {
     minutesPerTarget: 0,
     target: 'area',
     wholeWeek: true,
-    skills: ['firearms', 'stealth'],
+    skills: ['fists'],
+    armedSkills: ['firearms'],
     severity: 8,
   },
 };

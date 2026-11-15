@@ -100,9 +100,6 @@ interface GameState {
   roadNames: boolean;
   /** The original's Mouse Reversal (Advanced Options): dragging moves the view the other way. */
   mouseReversal: boolean;
-  /** Show the Bureau's suspicion and the evidence against you as gauges. The
-   *  original left the player to judge both from his own books; off hides them. */
-  bureauGauges: boolean;
   /** Model texture quality; applies when the city next loads (A20). */
   textureQuality: TextureQuality;
   /** Interface scale chosen in Options (desktop app; see uiScale.ts). */
@@ -180,7 +177,6 @@ interface GameState {
   setAutoLowerRoofs: (on: boolean) => void;
   setRoadNames: (on: boolean) => void;
   setMouseReversal: (on: boolean) => void;
-  setBureauGauges: (on: boolean) => void;
   setTextureQuality: (quality: TextureQuality) => void;
   setUiScale: (scale: number) => void;
   togglePoliceAreaBlock: (id: ID) => void;
@@ -248,7 +244,14 @@ function readMouseReversal(): boolean {
   try { return localStorage.getItem('og.mouseReversal') === '1'; } catch { return false; }
 }
 
-function readBureauGauges(): boolean {
+/**
+ * Whether this game shows the Bureau's suspicion and evidence gauges (and the
+ * Suspicion graph): chosen with the game, on the New Game screen. A game begun
+ * before that was so keeps the old per-install switch, which showed them
+ * unless it had been turned off.
+ */
+export function bureauGaugesShown(options: GameOptions): boolean {
+  if (options.bureauGauges != null) return options.bureauGauges;
   try { return localStorage.getItem('og.bureauGauges') !== '0'; } catch { return true; }
 }
 
@@ -301,7 +304,6 @@ export const useGame = create<GameState>((set, get) => ({
   autoLowerRoofs: readAutoLower(),
   roadNames: readRoadNames(),
   mouseReversal: readMouseReversal(),
-  bureauGauges: readBureauGauges(),
   textureQuality: readTextureQuality(),
   uiScale: readUiScale(),
   quitPrompt: false,
@@ -587,10 +589,6 @@ export const useGame = create<GameState>((set, get) => ({
   setMouseReversal: (mouseReversal) => {
     try { localStorage.setItem('og.mouseReversal', mouseReversal ? '1' : '0'); } catch { /* session only */ }
     set({ mouseReversal });
-  },
-  setBureauGauges: (bureauGauges) => {
-    try { localStorage.setItem('og.bureauGauges', bureauGauges ? '1' : '0'); } catch { /* session only */ }
-    set({ bureauGauges });
   },
   setRoadNames: (roadNames) => {
     try { localStorage.setItem('og.roadNames', roadNames ? '1' : '0'); } catch { /* session only */ }
