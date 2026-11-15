@@ -308,6 +308,8 @@ function validateReferences(w: WorldState, candidate: WorldState): void {
       throw Error('Save has an invalid order crew count.');
     if (o.refusals?.some(r => !Number.isSafeInteger(r.line) || r.line < 0 || r.line >= o.results.length || !w.buildings[r.buildingId]))
       throw Error('Save has an invalid order refusal.');
+    if (o.links?.some(r => !Number.isSafeInteger(r.line) || r.line < 0 || r.line >= o.results.length || !w.buildings[r.buildingId]))
+      throw Error('Save has an invalid order report link.');
   }
   for (const o of Object.values(w.orders)) {
     if (!w.teams[o.teamId] || !w.gangs[o.gangId]) throw Error('Save has an order for a missing crew.');

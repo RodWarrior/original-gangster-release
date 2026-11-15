@@ -109,9 +109,30 @@ export interface IssueOrderInput {
   replacingOrderId?: ID;
 }
 
-/** Orders on one site that only make sense once a week: a second raid on the
- * same store paid a second haul, a second purchase failed at the door. */
-const ONE_PER_SITE: ReadonlySet<OrderType> = new Set<OrderType>(['raid', 'smashUp', 'torch', 'bomb', 'buyPremises', 'setUpBusiness', 'runBusiness']);
+/** Orders on one site that only make sense once a week: a second purchase
+ * failed at the door. Raid, Smash Up, Torch and Bomb are not among them: as in
+ * the original, several crews may be sent after one site, so that the job is
+ * still done if one is killed, arrested or driven off. A crew that arrives to
+ * find it done stands down (execution.ts doneByAnother). */
+const ONE_PER_SITE: ReadonlySet<OrderType> = new Set<OrderType>(['buyPremises', 'setUpBusiness', 'runBusiness']);
+
+/**
+ * The other crews this gang already has on the books for the same job at a
+ * site, or after a person, this week: shown while planning, so a second crew
+ * is sent as a backup on purpose and not by mistake.
+ */
+export function crewsAlreadySent(w: WorldState, gangId: ID, type: OrderType, target: { buildingId?: ID | null; personId?: ID | null },
+  ignoreOrderId?: ID): { crew: string; men: number }[] {
+  const sent: { crew: string; men: number }[] = [];
+  for (const o of Object.values(w.orders)) {
+    if (o.gangId !== gangId || o.type !== type || o.id === ignoreOrderId || o.isStreetOrder) continue;
+    if (o.state !== 'queued' && o.state !== 'travelling' && o.state !== 'executing' && o.state !== 'waiting') continue;
+    const same = target.personId != null ? o.targetPersonId === target.personId
+      : target.buildingId != null && o.targetBuildingIds.includes(target.buildingId);
+    if (same) sent.push({ crew: w.teams[o.teamId]?.name ?? 'Another crew', men: o.assignedIds.length || o.opts.manpower });
+  }
+  return sent;
+}
 
 /** This gang already has an order of this kind on the books for the site. */
 export function siteAlreadyOrdered(w: WorldState, gangId: ID, type: OrderType, buildingId: ID, ignoreOrderId?: ID): boolean {
@@ -481,6 +502,7 @@ export function rolloverOrders(w: WorldState): void {
         order.completedTargets = 0;
         order.results = [];
         delete order.refusals;
+        delete order.links;
         order.failReason = null;
         order.assignedIds = [];
         delete order.waitReleased;
@@ -1220,15 +1242,28 @@ export function buySnitchInfo(
   }
   if (!candidates.length) return fail('He has nothing you do not already know.');
 
-  const price = 400 * targetGangIds.length + candidates.length * 30;
+  const price = snitchFee(targetGangIds.length, candidates.length);
   if (gang.cash < price) return fail(`He wants ${price.toLocaleString('en-US')} for that.`);
   payCash(w, gang, 'purchases', price);
   gang.snitchUsedWeek = w.week;
 
   rng.shuffle(candidates);
-  const n = Math.min(candidates.length, rng.int(2, 6));
+  const n = Math.min(candidates.length, rng.int(2, SNITCH_MOST_NAMES));
   for (let i = 0; i < n; i++) gang.knownPeople.push(candidates[i].id);
   return ok(`${snitch.name} named ${n} people for ${price.toLocaleString('en-US')}.`);
+}
+
+/** The most names a snitch gives up at one sitting. */
+const SNITCH_MOST_NAMES = 6;
+
+/**
+ * A snitch's price: $400 for each group asked about and $30 a name he could
+ * sell. He never names more than SNITCH_MOST_NAMES, so no more are paid for:
+ * charging for every stranger in town made the unattached hoods cost thousands
+ * for the same handful of names.
+ */
+function snitchFee(groups: number, unknown: number): number {
+  return 400 * groups + Math.min(unknown, SNITCH_MOST_NAMES) * 30;
 }
 
 export function snitchPrice(w: WorldState, gangId: ID, targetGangIds: ID[]): number {
@@ -1240,7 +1275,7 @@ export function snitchPrice(w: WorldState, gangId: ID, targetGangIds: ID[]): num
     if (p.gangId == null && targetGangIds.includes(0) && (p.role === 'hood' || p.role === 'lieutenant')) count++;
     else if (p.gangId != null && targetGangIds.includes(p.gangId)) count++;
   }
-  return 400 * targetGangIds.length + count * 30;
+  return snitchFee(targetGangIds.length, count);
 }
 
 // ---------------------------------------------------------------- street orders

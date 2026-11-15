@@ -231,10 +231,11 @@ describe('combat uses the assigned weapon', () => {
     expect(order.state).toBe('done');
     expect(w.messages.some(m => m.sound === 'gunshot')).toBe(armed);
   });
-  it('planned Kill uses fists for unequipped actors and firearms only for equipped actors', () => {
-    function attempt(firearms: number, fists: number, armed: boolean) {
+  it('planned Kill uses the knife for unequipped actors and firearms only for equipped actors', () => {
+    // Issue 17 item 28: a killing is done with Knives, or with Firearms by a man carrying a gun.
+    function attempt(firearms: number, knives: number, armed: boolean) {
       const { sim, w, gang, team, people, target } = scene();
-      people[0].skills.firearms = firearms; people[0].skills.fists = fists;
+      people[0].skills.firearms = firearms; people[0].skills.knives = knives;
       if (armed) team.weapons.pistol = 1;
       expect(issueOrder(w, gang.id, { teamId: team.id, type: 'kill', personId: target.id }).ok).toBe(true);
       const order = w.orders[team.orderIds.at(-1)!];
@@ -247,5 +248,7 @@ describe('combat uses the assigned weapon', () => {
     expect(attempt(5, 1, false)).toBe(attempt(1, 1, false));
     expect(attempt(1, 5, false)).toBeGreaterThan(attempt(1, 1, false));
     expect(attempt(5, 1, true)).toBeGreaterThan(attempt(1, 1, true));
+    // A gun does not make a knife man worse: he does it the way he is better at.
+    expect(attempt(1, 5, true)).toBe(attempt(1, 5, false));
   });
 });

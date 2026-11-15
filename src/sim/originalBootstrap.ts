@@ -16,6 +16,7 @@ import { ORIGINAL_ECONOMICS } from './data/originalEconomics';
 import { originalIncomeGroup } from './data/originalIncomeGroups';
 import { ourTypeForOriginalKind } from './data/originalKinds';
 import { BUILDING_BY_ID } from './data/buildings';
+import { ORIGINAL_HQ_FRONT_KIND } from './premises';
 import { OriginalRng } from './originalCityGen';
 import type { Block, Building, ID, Person, WorldState } from './types';
 
@@ -24,7 +25,7 @@ export interface OriginalHeadquarters { blockId: ID; frontBuildingId: ID; fx: nu
 
 const HANGOUT_KINDS = new Set([57, 91, 124]); // Gym, Pool hall, Docks
 const EMPLOYMENT_EXCHANGE = 45;               // civic content; its cells are civic sub-code 2
-const PERFUME_STORE = 85;
+const PERFUME_STORE = ORIGINAL_HQ_FRONT_KIND;
 const FRONT_BY_INCOME_GROUP: Record<number, number> = { 15: 118, 16: 113, 17: 108 }; // Builders, Trade Union, Tattoo Parlor
 
 function cellClass(b: Building, block: Block): number {

@@ -13,7 +13,7 @@
  * Compact cities keep the remake's wage drift and loyalty-based skim.
  */
 import { effectiveHostility, fearOf, hostilityOf, shiftAttitude } from './attitudes';
-import { SKILLS, type ID, type Person, type Skill } from './types';
+import { SKILLS, type ID, type Person, type Skill, type WorldState } from './types';
 
 /** Our half-star skill to the original byte: the midpoint of each star band
  * in Character Generation.txt (intelligence 0..256, other skills 0..64). */
@@ -90,6 +90,15 @@ export function originalRetainerQuote(p: Person, gangId: ID): number {
  * ($10..$35). A fee below it costs the shortfall in hostility each week. */
 export function originalRetainerFloor(p: Person, gangId: ID): number {
   return Math.trunc(originalRetainerQuote(p, gangId) / 5);
+}
+
+/**
+ * What a specialist for hire will be paid once taken on. In the original city
+ * that is his quote (originalStartingWage replaces the listed demand on
+ * hiring), so the lists quote it rather than a figure that is never charged.
+ */
+export function specialistAskingWage(w: WorldState, p: Person, gangId: ID): number {
+  return w.cityLayout?.original ? originalWageQuote(p, gangId) : p.payDemand;
 }
 
 /** A starting or newly hired member is offered his quote. */

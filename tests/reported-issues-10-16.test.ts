@@ -161,11 +161,13 @@ describe('issue 10 item 14: a man with nothing to do is at the office', () => {
 describe('issue 10 item 19: the week clock', () => {
   it('reads the working day 8 am to 4 pm, and the end of the week as Friday afternoon', () => {
     expect(weekTime(0)).toBe('8:00 am');
-    expect(weekTime(479)).toBe('3:59 pm');
+    // The clock shows a twelve-hour day (issue 17 item 14): a minute and a half for each simulated minute.
+    expect(weekTime(160)).toBe('12:00 pm');
+    expect(weekTime(479)).toBe('7:58 pm');
     expect(weekTime(480)).toBe('8:00 am');
-    expect(weekTime(MINUTES_PER_WEEK - 1)).toBe('3:59 pm');
+    expect(weekTime(MINUTES_PER_WEEK - 1)).toBe('7:58 pm');
     // The settlement minute was read as a sixth morning ("Fri · 8:00 am").
-    expect(weekTime(MINUTES_PER_WEEK)).toBe('4:00 pm');
+    expect(weekTime(MINUTES_PER_WEEK)).toBe('8:00 pm');
   });
 });
 
@@ -178,8 +180,13 @@ describe('issue 10 item 21: an apartment block is one building', () => {
     let resolved = 0, alone = 0;
     for (const house of houses) {
       const site = siteBuilding(w, house);
-      const tenement = w.blocks[house.blockId].lotIds.map(id => w.buildings[w.lots[id].buildingId]).find(b => b.cls === 'tenement');
-      if (tenement) { expect(site.id).toBe(tenement.id); resolved++; } else { expect(site.id).toBe(house.id); alone++; }
+      const parts = w.blocks[house.blockId].lotIds.map(id => w.buildings[w.lots[id].buildingId]);
+      const tenement = parts.find(b => b.cls === 'tenement');
+      // A headquarters block's tenement is the gang's street front (issue 17 item 1): its terraces go with that.
+      const hqFront = parts.find(b => b.hidesId != null && w.buildings[b.hidesId]?.isHQ);
+      if (tenement) { expect(site.id).toBe(tenement.id); resolved++; }
+      else if (hqFront) expect(site.id).toBe(hqFront.id);
+      else { expect(site.id).toBe(house.id); alone++; }
     }
     expect(resolved).toBeGreaterThan(0);
     expect(alone).toBeGreaterThan(0);
@@ -216,7 +223,9 @@ describe('issue 10 item 17: whoever buys a business stays to run it', () => {
     expect(shop.managerId).not.toBe(team.lieutenantId);
     expect(gang.poolIds).not.toContain(shop.managerId);
     expect(w.people[shop.managerId!].buildingId).toBe(shop.id);
-    expect(order.results.join(' ')).toMatch(/stays on to run it/);
+    // The purchase is reported as a link to the place (issue 17 item 25), where its manager is shown.
+    expect(order.links).toEqual([{ line: order.results.findIndex(r => r.startsWith('Bought ')), buildingId: shop.id }]);
+    expect(order.results.join(' ')).not.toMatch(/stays on to run it/);
   }, 300_000);
 });
 

@@ -24,6 +24,16 @@ export function buildingMapIntel(b: Building, viewer: ID | null) {
 }
 
 /**
+ * The shopkeeper a gang can put a name to: only at a place it has dealt with
+ * or scouted (the building panel's rule), and never at a place a gang has
+ * bought, where the seller stays on inside but the owner is the gang.
+ */
+export function knownShopkeeper(w: WorldState, b: Building, viewer: ID | null): Person | null {
+  if (b.ownerPersonId == null || b.ownerGangId != null || viewer == null || (b.knowledge[viewer] ?? 0) < 2) return null;
+  return w.people[b.ownerPersonId] ?? null;
+}
+
+/**
  * Where a gang's map can place a person. Your own people and civilians are
  * where they are; a rival only at premises you have identified as his gang's
  * (inside, or at the door of its office), never at his true position.

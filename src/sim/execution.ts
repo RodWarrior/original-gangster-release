@@ -6,6 +6,7 @@ import { originalHuntArrived, originalHuntFinds, startOriginalHunt } from './sys
 import {startBuildingEmergency} from './systems/buildingEmergency';
 import { validAmbushTarget } from './ambush';
 import { crewPeople, orderStaffing, readyForPlanning } from './orderStaffing';
+import { crewOrderSkill } from './orderSkills';
 import { claimedTerritoryBlocks, distanceToTerritory } from './territory';
 import { observeTargetRace } from './targetRace';
 import { reclaimStaffVehicle } from './specialists';
@@ -156,6 +157,17 @@ function actorSkill(actors: Person[], skills: (keyof Skills)[]): number {
 /** The odds of the success roll shared by every order. `difficulty` is 0 (trivial) .. 1 (brutal). */
 function successChance(actors: Person[], skills: (keyof Skills)[], difficulty: number): number {
   const s = starFactor(actorSkill(actors, skills));
+  return Math.max(0.03, Math.min(0.97, 0.18 + s * 0.85 - difficulty * 0.75));
+}
+
+/** The crew's rating for an order, a man with a gun using it where the order allows (orderSkills.ts). */
+function orderCrewSkill(actors: Person[], type: OrderType, loadout: Loadout): number {
+  return crewOrderSkill(actors, ORDERS[type], p => loadout.has(p.id));
+}
+
+/** `successChance` for an order whose skills depend on who is armed. */
+function orderChance(actors: Person[], type: OrderType, loadout: Loadout, difficulty: number): number {
+  const s = starFactor(orderCrewSkill(actors, type, loadout));
   return Math.max(0.03, Math.min(0.97, 0.18 + s * 0.85 - difficulty * 0.75));
 }
 
@@ -480,6 +492,7 @@ function assignOrder(w: WorldState, team: Team, order: Order, atWeekStart = fals
   order.completedTargets = 0;
   order.results = [];
   delete order.refusals;
+  delete order.links;
   order.failReason = null;
   delete order.waitReleased;
   delete order.waitResumeState;
@@ -795,7 +808,8 @@ export function tickOrders(w: WorldState, rng: Rng, minutes: number, loadout: Lo
 function workForTarget(w: WorldState, order: Order, actors: Person[]): number {
   if(order.raidDelivery)return 10;
   const def = ORDERS[order.type];
-  const skill = starFactor(actorSkill(actors, def.skills));
+  // How long the work takes goes by the crew's best way of doing it.
+  const skill = starFactor(crewOrderSkill(actors, def, () => true));
   void w;
   // Keep the original total work allowance, divided between loading and sale.
   const stage = order.type === 'export' ? (order.exportDelivery ? 0.25 : 0.75) : 1;
@@ -1056,7 +1070,23 @@ function resolveTarget(
   // the job is not counted done for it.
   let missed: string | null = null;
   const miss = (s: string) => { order.results.push(s); missed = s; };
-  const refused = (s: string, site: Building) => { (order.refusals ??= []).push({ line: order.results.length, buildingId: site.id }); miss(s); };
+  // An owner who turns the crew down has still been met: the gang now knows
+  // whose place it is and who, if anybody, he pays (the knowledge a visit
+  // gives; it used to take a successful extortion).
+  const refused = (s: string, site: Building) => {
+    (order.refusals ??= []).push({ line: order.results.length, buildingId: site.id });
+    site.knowledge[gang.id] = Math.max(site.knowledge[gang.id] ?? 0, 2);
+    miss(s);
+  };
+  // Several crews may be sent after one site, so that the job is still done
+  // if the first is killed, arrested or driven off. One that arrives to find
+  // it done stands down, rather than doing it twice (a second haul from one
+  // raid, a second fire that levelled the place).
+  const doneByAnother = (site: Building): boolean => Object.values(w.orders).some(o => o.id !== order.id && o.gangId === gang.id &&
+    o.type === order.type && !o.isStreetOrder && o.completedTargets > 0 && o.targetBuildingIds.includes(site.id));
+  const standDown = (site: Building) => say(`Another crew had already done the job at ${placeName(w, site)}: this one stood down.`);
+  // A line about a place that the report shows as a link to it on the map.
+  const sayOf = (s: string, site: Building) => { (order.links ??= []).push({ line: order.results.length, buildingId: site.id }); say(s); };
   const signUp = (site: Building) => {
     const base = protectionFee(site);
     site.protection = { gangId: gang.id, weekly: base, base, refusing: false, grievance: 0 };
@@ -1092,9 +1122,9 @@ function resolveTarget(
         // As in the original, whoever bought it stays on to run it.
         staffed = assignManager(w, team, building, actors, true);
       }
-      say(`Bought ${placeName(w, building)} for $${cost.toLocaleString('en-US')}.`);
-      if (staffed) say(`${w.people[building.managerId ?? -1]?.name ?? 'A hood'} stays on to run it.`);
-      else if (staffed === false) {
+      // The line leads to the place on the map; who stayed on to run it is shown there.
+      sayOf(`Bought ${placeName(w, building)} for $${cost.toLocaleString('en-US')}.`, building);
+      if (staffed === false) {
         say('Nobody was free to stay and run it: send a hood with Run Business.');
         report(w, gang.id, 'waiting', `${placeName(w, building)} has nobody running it.`, here, lead.id);
       }
@@ -1398,7 +1428,12 @@ function resolveTarget(
     case 'intimidate': {
       const target = victim ?? (building?.ownerPersonId != null ? w.people[building.ownerPersonId] : null);
       if (!target) return;
-      const success = roll(rng, actors, ['intimidation'], 0.25 + Math.max(0, -(target.opinion[gang.id] ?? 0)) / 220);
+      // Another crew brought him round earlier in the week: there is nothing left to press.
+      if (building && !victim && !isValidAreaTarget(w, gang.id, 'intimidate', building)) {
+        say(`${target.name} had already been brought round.`);
+        break;
+      }
+      const success = rng.chance(orderChance(actors, 'intimidate', loadout, 0.25 + Math.max(0, -(target.opinion[gang.id] ?? 0)) / 220));
       recordCrime(w, rng, {
         gangId: gang.id,
         perpetratorId: lead.id,
@@ -1494,12 +1529,13 @@ function resolveTarget(
         delete order.raidDelivery;say('The raided goods reached the warehouse.');break;
       }
       if (!building) return;
+      if (doneByAnother(building)) { standDown(building); break; }
       if (building.state === 'destroyed') return finishOrder(w, order, 'The site is gone.');
       if (building.state !== 'trading') return finishOrder(w, order, `${placeName(w, building)} is shut; there was nothing worth taking.`);
       const t = typeOf(building);
       const blk = w.blocks[building.blockId];
       const guards = standingGuards(w, building);
-      const odds = successChance(actors, ['stealth', 'firearms'], 0.28 + guards * 0.12);
+      const odds = orderChance(actors, 'raid', loadout, 0.28 + guards * 0.12);
       const success = rng.chance(odds);
       recordCrime(w, rng, {
         gangId: gang.id,
@@ -1538,10 +1574,11 @@ function resolveTarget(
         }
       } else {
         // The report says what went against the crew, not just that it failed.
-        const stars = actorSkill(actors, ['stealth', 'firearms']);
+        const stars = orderCrewSkill(actors, 'raid', loadout), armed = actors.some(p => loadout.has(p.id));
         const why = guards > 0
           ? `The place was guarded (${guards} on the door${building.guardIds.includes(-1) ? ', the police among them' : ''})`
-          : stars < 3 ? `The crew is short on stealth and firearms (${stars.toFixed(1)} stars between them)`
+          : stars < 3 ? armed ? `The crew is short on firearms skill (${stars.toFixed(1)} stars between them)`
+            : `The crew went in without guns and is short on fists (${stars.toFixed(1)} stars between them)`
           : 'The luck ran against them';
         return finishOrder(w, order, `The raid on ${placeName(w, building)} was botched. ${why}; their chances were about ${Math.round(odds * 100)}%.`);
       }
@@ -1552,7 +1589,7 @@ function resolveTarget(
       if (!victim) return finishOrder(w, order, 'The target could not be found.');
       if (victim.gangId == null || victim.gangId === gang.id)
         return finishOrder(w, order, 'Only rival gang members can be taken.');
-      const success = roll(rng, actors, ['stealth', 'fists', 'intimidation'], 0.35);
+      const success = rng.chance(orderChance(actors, 'kidnap', loadout, 0.35));
       stepOut(w,lead,victim.pos);
       recordCrime(w, rng, {
         gangId: gang.id,
@@ -1592,8 +1629,9 @@ function resolveTarget(
     // -------------------------------------------------- violent crimes
     case 'smashUp': {
       if (!building) return;
+      if (doneByAnother(building)) { standDown(building); break; }
       if (building.state === 'destroyed') return finishOrder(w, order, 'The site is gone.');
-      const success = roll(rng, actors, ['intelligence', 'stealth', 'fists'], 0.2 + standingGuards(w, building) * 0.15);
+      const success = rng.chance(orderChance(actors, 'smashUp', loadout, 0.2 + standingGuards(w, building) * 0.15));
       recordCrime(w, rng, {
         gangId: gang.id,
         perpetratorId: lead.id,
@@ -1615,7 +1653,7 @@ function resolveTarget(
 
     case 'assault': {
       if (!victim) return finishOrder(w, order, 'The target could not be found.');
-      const success = roll(rng, actors, ['intelligence', 'fists'], 0.18);
+      const success = rng.chance(orderChance(actors, 'assault', loadout, 0.18));
       // Out of the car to do it (he struck from the seat across the street).
       stepOut(w,lead,victim.pos);
       presentAttack(w,lead,victim,undefined,success);
@@ -1661,9 +1699,10 @@ function resolveTarget(
 
     case 'torch': {
       if (!building) return;
+      if (doneByAnother(building)) { standDown(building); break; }
       if (building.state === 'destroyed') return finishOrder(w, order, 'The site is gone.');
       stepOut(w,lead,here);presentThrow(w,lead,here,'molotov');
-      const success = roll(rng, actors, ['arson', 'stealth', 'intelligence'], 0.24 + standingGuards(w, building) * 0.12);
+      const success = rng.chance(orderChance(actors, 'torch', loadout, 0.24 + standingGuards(w, building) * 0.12));
       recordCrime(w, rng, {
         gangId: gang.id,
         perpetratorId: lead.id,
@@ -1690,6 +1729,8 @@ function resolveTarget(
 
     case 'bomb': {
       if (!building) return;
+      // Before the explosives are drawn: a bomb is not spent on a job already done.
+      if (doneByAnother(building)) { standDown(building); break; }
       if (building.state === 'destroyed') return finishOrder(w, order, 'The site is gone.');
       if ((team.weapons.explosives ?? 0) <= 0 && (gang.weapons.explosives ?? 0) <= 0)
         return finishOrder(w, order, 'No explosives were available.');
@@ -1697,7 +1738,7 @@ function resolveTarget(
       else gang.weapons.explosives--;
       stepOut(w,lead,here);presentThrow(w,lead,here,'bomb');
 
-      const success = roll(rng, actors, ['explosives', 'stealth', 'intelligence'], 0.3);
+      const success = rng.chance(orderChance(actors, 'bomb', loadout, 0.3));
       recordCrime(w, rng, {
         gangId: gang.id,
         perpetratorId: lead.id,
@@ -1739,14 +1780,11 @@ function resolveTarget(
     case 'kill': {
       if (!victim) return finishOrder(w, order, 'The target could not be found.');
       const guard = victim.gangId != null ? 0.18 : 0;
-      // The mission still resolves as a whole, but only an equipped actor can
-      // contribute shooting skill. Close-combat attempts are harder to execute.
-      const equippedActors = actors.map(p => {
-        const attack = attackProfile(loadout, p);
-        return { ...p, skills: { ...p.skills, firearms: attack.skill * (attack.weapon ? 1 : 0.6) } };
-      });
+      // The mission still resolves as a whole: a man with a gun shoots or
+      // uses his knife, whichever he is better at; a man without one has only
+      // the knife (orderSkills.ts).
       const armed = actors.some(p => loadout.has(p.id));
-      const success = roll(rng, equippedActors, ['firearms', 'stealth', 'intimidation'], 0.24 + guard);
+      const success = rng.chance(orderChance(actors, 'kill', loadout, 0.24 + guard));
       const shooter=actors.find(p=>loadout.has(p.id))??lead;
       // A gun reaches from the car; bare hands do not.
       if(!loadout.has(shooter.id))stepOut(w,shooter,victim.pos);

@@ -16,9 +16,10 @@ import {
   transferVehicle,
   transferWeapon,
 } from '../../sim/api';
-import { GANG_COLORS, ORDERS, ORDER_GROUPS, VEHICLES, VEHICLE_ORDER, WEAPONS, WEAPON_ORDER, type OrderDef } from '../../sim/constants';
+import { GANG_COLORS, ORDERS, ORDER_GROUPS, VEHICLES, VEHICLE_ORDER, WEAPONS, WEAPON_ORDER, clockMinutes, type OrderDef } from '../../sim/constants';
 import { SKILLS, SKILL_LABELS, type Building, type ID, type OrderType, type Person, type Skill, type VehicleId, type WeaponId } from '../../sim/types';
 import { buildingName, money, placeName } from '../../sim/world';
+import { orderSkillText } from '../../sim/orderSkills';
 import { buildingMapIntel } from '../../sim/mapIntel';
 import { ConfirmDialog, Empty, Hint, Icon, Kicker, Rivets, SkillList, Stamp, Stars } from '../common';
 
@@ -31,7 +32,9 @@ import { selectableOrderPerson, selectableOrderSite, selectedOrderSites } from '
 import { resourceDragProps, useResourceDrop } from '../resourceDrag';
 
 import { buildingList } from '../../sim/entityLists';
-export function hours(minutes: number): string {
+/** A length of crew time as the clock counts it (a twelve-hour day: constants.ts clockMinutes). */
+export function hours(simMinutes: number): string {
+  const minutes = clockMinutes(simMinutes);
   if (minutes < 60) return `${Math.round(minutes)}m`;
   const h = minutes / 60;
   return `${h % 1 === 0 ? h : h.toFixed(1)}h`;
@@ -208,6 +211,7 @@ function OrderListSheet({ group, teamId }: { group: OrderDef['group']; teamId: I
           <span className="order-text">
             <b>{o.name}</b>
             <span className="cost">{orderCost(o)}</span>
+            {orderSkillText(o) && <span className="order-skill">Skill used: {orderSkillText(o)}</span>}
             <span className="desc">{o.desc}</span>
           </span>
         </button>
@@ -732,11 +736,22 @@ function ClipboardSheet() {
 
         <Kicker style={{ margin: '12px 0 4px' }}>Gang members you know</Kicker>
         {rivals.map((r) => {
-          const members = known.filter((p) => p.gangId === r.id);
+          // The boss heads his gang's list, as the Chief of Police heads the police.
+          const members = known.filter((p) => p.gangId === r.id).sort((a, b) => Number(b.id === r.bossId) - Number(a.id === r.bossId));
+          // The whole city knows a boss by name. Until he has been identified
+          // that is all there is: no skills, nowhere to find him, nobody to target.
+          const boss = w.people[r.bossId];
+          const named = boss && boss.status !== 'dead' && !r.eliminated && !members.some((p) => p.id === boss.id) ? boss : null;
           return (
-            <ClipSection key={r.id} id={`gang${r.id}`} title={`${r.name}${r.eliminated ? ' · wiped out' : ''}`} count={members.length}
+            <ClipSection key={r.id} id={`gang${r.id}`} title={`${r.name}${r.eliminated ? ' · wiped out' : ''}`} count={members.length + (named ? 1 : 0)}
               color={GANG_COLORS[r.color].hex} forceOpen={want(members.length, 'person')}>
-              {members.map((p) => personRow(p, p.role, { color: GANG_COLORS[r.color].hex, skills: true }))}
+              {named && (
+                <div className="list-row clip-row" title="Known by name only: identify him to learn more">
+                  <span className="name" style={{ color: GANG_COLORS[r.color].hex }}><span>{named.name}</span></span>
+                  <span className="muted">boss · whereabouts unknown</span>
+                </div>
+              )}
+              {members.map((p) => personRow(p, p.id === r.bossId ? 'boss' : p.role, { color: GANG_COLORS[r.color].hex, skills: true }))}
             </ClipSection>
           );
         })}

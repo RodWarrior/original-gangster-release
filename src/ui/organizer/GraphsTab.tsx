@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useGame } from '../../app/store';
+import { bureauGaugesShown, useGame } from '../../app/store';
 import { GANG_COLORS } from '../../sim/constants';
 import type { GangWeekStat } from '../../sim/types';
 import { Empty, Hint, Panel } from '../common';
@@ -23,7 +23,7 @@ export function GraphsTab() {
   const [allGangs, setAllGangs] = useState(true);
   const [bars, setBars] = useState(false);
   // With the Bureau's gauges hidden its graph goes too.
-  const bureauGauges = useGame((s) => s.bureauGauges);
+  const bureauGauges = bureauGaugesShown(sim.world.options);
   const metrics = bureauGauges ? METRICS : METRICS.filter((m) => m.id !== 'suspicion');
   if (!bureauGauges && metric === 'suspicion') setMetric('power');
 
